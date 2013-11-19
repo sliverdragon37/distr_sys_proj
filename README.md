@@ -2,7 +2,9 @@ distr_sys_proj
 ==============
 
 
-BUILD INSTRUCTIONS:
+INITIAL BUILD INSTRUCTIONS:
+
+Go to base directory of repository. Run following commands.
 
 mkdir build
 cd build
