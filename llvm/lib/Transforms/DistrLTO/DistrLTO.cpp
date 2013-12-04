@@ -46,8 +46,15 @@ namespace {
 	//IDs of callers which called us
 	set<ID> callers;
 
+	//function which we care about
+	llvm::Function* fun;
+
 	//TODO more data here
 	//alloc_sites for each pointer at each position
+
+	results(llvm::Function* f) :fun(f) {
+	    
+	}
 	
     };
 
@@ -58,7 +65,7 @@ namespace {
 
     struct Distr : public ModulePass {
 	//results to update when we get new info
-        map<ID,*results> to_update;
+        map<ID,results*> to_update;
 
 	//results for all contexts
 	map<context,results> cs_results;
@@ -72,11 +79,16 @@ namespace {
 	    errs().write_escaped(M.getModuleIdentifier()) << '\n';
 	    errs().write_escaped(M.getDataLayout()) << '\n';
 	    errs().write_escaped(M.getTargetTriple()) << "\n\n\n";
-	    //functions in the program
+
+	    vector<results*> v;
+
+            //functions in the program
 	    for (auto i = M.begin(); i != M.end(); i++) {
 		errs().write_escaped("function: ");
 		errs().write_escaped(i->getName()) << '\n';
 
+		v.push_back(new results(&(*i)));
+		
 		//basic blocks in the function
 		for (auto j = i->begin(); j != i->end(); j++) {
 		    //errs().write_escaped(j->getName()) << '\n';
@@ -87,10 +99,14 @@ namespace {
 		    }
 		}
 	    }
-
+	    
 	    //basic design:
 	    // *go through and count allocation sites in entire program
 	    // *initialize data structures
+
+	    int num_alloc_sites = 0;
+	    
+	    
 	    
 	    return false;
 	}
