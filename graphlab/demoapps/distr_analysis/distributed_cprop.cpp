@@ -42,24 +42,35 @@
 using namespace graphlab;
 
 // The graph type is determined by the vertex and edge data types
-typedef distributed_graph<float , graphlab::empty> graph_type;
+typedef distributed_graph<std::string , graphlab::empty> graph_type;
 typedef warp::warp_engine<graph_type> warp_engine_type;
 
 //is this done per machine?
 //TODO make sure this works
 llvm::Module* M = NULL;
 
+//aw hell
+std::map<graphlab::vertex_id_type,std::string> fun_names;
+
+//fuck global variables this is terrible
+std::map<std::string,llvm::Function*> functions;
+
+int counter = 0;
 
 /*
  * A simple function used by graph.transform_vertices(init_vertex);
  * to initialize the vertes data.
  */
-void init_vertex(graph_type::vertex_type& vertex) { vertex.data() = 1; }
-
-
-float pagerank_map(graph_type::edge_type edge, graph_type::vertex_type other) {
-  return other.data() / other.num_out_edges();
+void init_vertex(graph_type::vertex_type& vertex) {
+  std::map<graphlab::vertex_id_type,std::string>::iterator i = fun_names.find(vertex.id());
+  if (i != fun_names.end())
+    vertex.data() = i->second;
 }
+
+
+// float pagerank_map(graph_type::edge_type edge, graph_type::vertex_type other) {
+//   return other.data() / other.num_out_edges();
+// }
 
 
 void signal_neighbor(warp_engine_type::context& context,
@@ -71,12 +82,15 @@ void signal_neighbor(warp_engine_type::context& context,
 
 void pagerank(warp_engine_type::context& context,
               graph_type::vertex_type vertex) {
-  float old_vdata = vertex.data();
-  vertex.data() = 0.15 + 0.85 * warp::map_reduce_neighborhood(vertex,
-                                                              IN_EDGES,
-                                                              pagerank_map);
-  if (std::fabs(old_vdata - vertex.data()) > 1E-2) {
-    warp::broadcast_neighborhood(context, vertex, OUT_EDGES, signal_neighbor);
+  context.cout() << "vertex data is: " << vertex.data() << std::endl;
+  if (functions.find(vertex.data()) != functions.end()) {
+    llvm::Function* f = functions.find(vertex.data())->second;
+    for (llvm::Function::iterator i = f->begin(); i != f->end(); i++) {
+	for (llvm::BasicBlock::iterator j = i->begin(); j != i->end(); j++) {
+          counter++;
+          //context.cout() << "instruction: " << std::endl;
+	}
+    }
   }
 }
 
@@ -110,19 +124,33 @@ bool line_parser(graph_type& graph,
     if (delim == "->") {
 	strm.ignore(99,'x');
 	strm >> other_vert;
-	// std::cout << vert << "\n";
-	// std::cout << other_vert << "\n";
+	//sscanf is ugly as balls but it works
 	const char* x = ("0x" + vert).c_str();
 	sscanf(x,"%x",&vid);
 	const char* y = ("0x" + other_vert).c_str();
 	sscanf(y,"%x",&other_vid);
 	graph.add_edge(vid, other_vid);
     } else {
+	//fml using sscanf sucks
 	const char* x = ("0x" + vert).c_str();
 	sscanf(x,"%x",&vid);
-	// std::cout << "create: " << vert << "\n";
-	// std::cout << vid << std::endl;
-	graph.add_vertex(vid);
+
+	bool on = false;
+	std::string fun_name = "";
+	for (std::string::iterator i = delim.begin(); i != delim.end(); i++) {
+	    if (*i == '}')
+		on = false;
+	    if (on)
+		fun_name += *i;
+	    if (*i == '{')
+		on = true;
+	}
+	if (fun_name == "external") {
+	    fun_name = "external function";
+	}
+        std::cout << "adding vertex: " << fun_name << std::endl;
+	fun_names.insert(std::pair<graphlab::vertex_id_type,std::string>(vid,fun_name));
+	graph.add_vertex(vid, fun_name);
     }
     
     return true;
@@ -158,6 +186,11 @@ int main(int argc, char** argv) {
   llvm::LLVMContext Context;
   M = llvm::ParseIRFile(InputFilename, Err, Context);
 
+  //make map of names to functions
+  for (llvm::Module::iterator iter = M->begin(); iter != M->end(); iter++) {
+      functions.insert(std::pair<std::string,llvm::Function*>(iter->getName(),&(*iter)));
+  }
+  
   llvm::Module::iterator i = M->begin();
   for (; i != M->end(); i++) {
       std::string s = i->getName();
@@ -183,6 +216,7 @@ int main(int argc, char** argv) {
   dc.cout() << "Finished Running in " << ti.current_time()
             << " seconds." << std::endl;
 
+  dc.cout() << "counter is: " << counter << std::endl;
 
   // Save the final graph -----------------------------------------------------
   if (saveprefix != "") {
